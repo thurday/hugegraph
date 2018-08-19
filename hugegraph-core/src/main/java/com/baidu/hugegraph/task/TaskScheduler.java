@@ -23,6 +23,7 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
@@ -40,6 +41,7 @@ import com.baidu.hugegraph.backend.query.Condition;
 import com.baidu.hugegraph.backend.query.ConditionQuery;
 import com.baidu.hugegraph.backend.store.BackendStore;
 import com.baidu.hugegraph.backend.tx.GraphTransaction;
+import com.baidu.hugegraph.event.EventListener;
 import com.baidu.hugegraph.exception.NotFoundException;
 import com.baidu.hugegraph.iterator.MapperIterator;
 import com.baidu.hugegraph.schema.IndexLabel;
@@ -55,6 +57,7 @@ import com.baidu.hugegraph.type.define.HugeKeys;
 import com.baidu.hugegraph.util.E;
 import com.baidu.hugegraph.util.Events;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 
 public class TaskScheduler {
 
@@ -62,6 +65,7 @@ public class TaskScheduler {
     private final ExecutorService taskExecutor;
     private final ExecutorService dbExecutor;
 
+    private final EventListener eventListener;
     private final Map<Id, HugeTask<?>> tasks;
 
     private volatile TaskTransaction taskTx;
@@ -83,7 +87,7 @@ public class TaskScheduler {
 
         this.taskTx = null;
 
-        this.listenChanges();
+        this.eventListener = this.listenChanges();
     }
 
     public HugeGraph graph() {
@@ -100,7 +104,9 @@ public class TaskScheduler {
             synchronized (this) {
                 if (this.taskTx == null) {
                     BackendStore store = this.graph.loadSystemStore();
-                    this.taskTx = new TaskTransaction(this.graph, store);
+                    TaskTransaction tx = new TaskTransaction(this.graph, store);
+                    assert this.taskTx == null; // may be reentrant?
+                    this.taskTx = tx;
                 }
             }
         }
@@ -108,15 +114,23 @@ public class TaskScheduler {
         return this.taskTx;
     }
 
-    private void listenChanges() {
-        // Listen store event: "store.init"
-        this.graph.loadSystemStore().provider().listen(event -> {
-            if (Events.STORE_INIT.equals(event.name())) {
+    private EventListener listenChanges() {
+        // Listen store event: "store.init", "store.truncate"
+        Set<String> storeEvents = ImmutableSet.of(Events.STORE_INIT,
+                                                  Events.STORE_TRUNCATE);
+        EventListener eventListener = event -> {
+            if (storeEvents.contains(event.name())) {
                 this.submit(() -> this.tx().initSchema());
                 return true;
             }
             return false;
-        });
+        };
+        this.graph.loadSystemStore().provider().listen(eventListener);
+        return eventListener;
+    }
+
+    private void unlistenChanges() {
+        this.graph.loadSystemStore().provider().unlisten(this.eventListener);
     }
 
     public <V> Future<?> restore(HugeTask<V> task) {
@@ -174,6 +188,7 @@ public class TaskScheduler {
     }
 
     public boolean close() {
+        this.unlistenChanges();
         if (!this.dbExecutor.isShutdown()) {
             this.submit(() -> {
                 this.tx().close();
