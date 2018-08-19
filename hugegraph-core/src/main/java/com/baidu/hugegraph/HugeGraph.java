@@ -39,8 +39,6 @@ import org.slf4j.Logger;
 import com.baidu.hugegraph.analyzer.Analyzer;
 import com.baidu.hugegraph.analyzer.AnalyzerFactory;
 import com.baidu.hugegraph.backend.BackendException;
-import com.baidu.hugegraph.backend.cache.CachedGraphTransaction;
-import com.baidu.hugegraph.backend.cache.CachedSchemaTransaction;
 import com.baidu.hugegraph.backend.id.Id;
 import com.baidu.hugegraph.backend.query.Query;
 import com.baidu.hugegraph.backend.serializer.AbstractSerializer;
@@ -96,8 +94,8 @@ public class HugeGraph implements Graph {
     }
 
     private final String name;
-    private boolean closed;
-    private boolean restoring;
+    private volatile boolean closed;
+    private volatile boolean restoring;
 
     private final HugeConfig configuration;
 
@@ -208,9 +206,15 @@ public class HugeGraph implements Graph {
         }
     }
 
+    public void truncateBackend() {
+        this.storeProvider.truncate();
+        new BackendStoreInfo(this).init();
+    }
+
     private SchemaTransaction openSchemaTransaction() throws HugeException {
+        this.checkGraphNotClosed();
         try {
-            return new CachedSchemaTransaction(this, this.loadSchemaStore());
+            return new SchemaTransaction(this, this.loadSchemaStore());
         } catch (BackendException e) {
             String message = "Failed to open schema transaction";
             LOG.error("{}", message, e);
@@ -219,8 +223,9 @@ public class HugeGraph implements Graph {
     }
 
     private GraphTransaction openGraphTransaction() throws HugeException {
+        this.checkGraphNotClosed();
         try {
-            return new CachedGraphTransaction(this, this.loadGraphStore());
+            return new GraphTransaction(this, this.loadGraphStore());
         } catch (BackendException e) {
             String message = "Failed to open graph transaction";
             LOG.error("{}", message, e);
@@ -235,12 +240,16 @@ public class HugeGraph implements Graph {
         return BackendProviderFactory.open(backend, this.name);
     }
 
-    private BackendStore loadSchemaStore() {
+    private void checkGraphNotClosed() {
+        E.checkState(!this.closed, "Graph '%s' has been closed", this);
+    }
+
+    public BackendStore loadSchemaStore() {
         String name = this.configuration.get(CoreOptions.STORE_SCHEMA);
         return this.storeProvider.loadSchemaStore(name);
     }
 
-    private BackendStore loadGraphStore() {
+    public BackendStore loadGraphStore() {
         String graph = this.configuration.get(CoreOptions.STORE_GRAPH);
         return this.storeProvider.loadGraphStore(graph);
     }
@@ -251,6 +260,7 @@ public class HugeGraph implements Graph {
     }
 
     public SchemaTransaction schemaTransaction() {
+        this.checkGraphNotClosed();
         /*
          * NOTE: each schema operation will be auto committed,
          * Don't need to open tinkerpop tx by readWrite() and commit manually.
@@ -259,6 +269,7 @@ public class HugeGraph implements Graph {
     }
 
     public GraphTransaction graphTransaction() {
+        this.checkGraphNotClosed();
         /*
          * NOTE: graph operations must be committed manually,
          * Maybe users need to auto open tinkerpop tx by readWrite().
