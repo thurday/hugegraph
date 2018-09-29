@@ -304,7 +304,7 @@ public class EdgeAPI extends BatchAPI {
         });
     }
 
-    private static void checkBatchSize(HugeGraph g, List<JsonEdge> edges) {
+    public static void checkBatchSize(HugeGraph g, List<JsonEdge> edges) {
         int max = g.configuration().get(ServerOptions.MAX_EDGES_PER_BATCH);
         if (edges.size() > max) {
             throw new IllegalArgumentException(String.format(
@@ -313,7 +313,7 @@ public class EdgeAPI extends BatchAPI {
         }
     }
 
-    private static Vertex getVertex(HugeGraph graph, Object id, String label) {
+    public static Vertex getVertex(HugeGraph graph, Object id, String label) {
         HugeVertex vertex;
         try {
             vertex = (HugeVertex) graph.vertices(id).next();
@@ -325,7 +325,7 @@ public class EdgeAPI extends BatchAPI {
         return vertex.copy().resetTx();
     }
 
-    private static Vertex newVertex(HugeGraph graph, Object id, String label) {
+    public static Vertex newVertex(HugeGraph graph, Object id, String label) {
         // NOTE: Not use SchemaManager because it will throw 404
         VertexLabel vl = graph.schemaTransaction().getVertexLabel(label);
         E.checkArgumentNotNull(vl, "Invalid vertex label '%s'", label);
@@ -347,7 +347,7 @@ public class EdgeAPI extends BatchAPI {
     }
 
     @JsonIgnoreProperties(value = {"type"})
-    private static class JsonEdge implements Checkable {
+    public static class JsonEdge implements Checkable {
 
         @JsonProperty("id")
         public String id;

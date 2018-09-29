@@ -251,7 +251,7 @@ public class VertexAPI extends BatchAPI {
         }
     }
 
-    private static void checkBatchSize(HugeGraph g, List<JsonVertex> vertices) {
+    public static void checkBatchSize(HugeGraph g, List<JsonVertex> vertices) {
         int max = g.configuration().get(ServerOptions.MAX_VERTICES_PER_BATCH);
         if (vertices.size() > max) {
             throw new IllegalArgumentException(String.format(
@@ -261,7 +261,7 @@ public class VertexAPI extends BatchAPI {
     }
 
     @JsonIgnoreProperties(value = {"type"})
-    private static class JsonVertex implements Checkable {
+    public static class JsonVertex implements Checkable {
 
         @JsonProperty("id")
         public Object id;
